@@ -121,7 +121,7 @@ private fun CameraScreen(item: DiscountItem?, scannedValue: String, onResult: (S
                         (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
                     else @Suppress("DEPRECATION") (context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as Vibrator)
                     if (android.os.Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(65, VibrationEffect.DEFAULT_AMPLITUDE))
-                    else @Suppress("DEPRECATION") vibrator.vibrate(65)
+                    else vibrator.vibrate(65)
                     ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70).apply {
                         startTone(ToneGenerator.TONE_PROP_BEEP, 70)
                     }
