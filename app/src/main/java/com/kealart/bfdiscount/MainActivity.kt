@@ -9,15 +9,23 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,10 +33,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BarcodeScanner
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,13 +61,14 @@ import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
-private val Green = Color(0xFF148447)
-private val Red = Color(0xFFBA2525)
+private val Green = Color(0xFF0A7D3B)
+private val Red = Color(0xFFB3261E)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        enableEdgeToEdge()
         setContent { BFScannerApp() }
     }
 }
@@ -76,7 +94,7 @@ private fun BFScannerApp() {
     }
     val dark = isSystemInDarkTheme()
     val colors = if (dark) darkColorScheme(primary = Color(0xFF75D99B), background = Color(0xFF101110), surface = Color(0xFF1C1E1C))
-                 else lightColorScheme(primary = Color(0xFF176B3A), background = Color(0xFFF6F7F5), surface = Color.White)
+                 else lightColorScheme(primary = Green, background = Color(0xFFF6F6F4), surface = Color.White, onSurface = Color(0xFF1A1A1A), onSurfaceVariant = Color(0xFF70766F))
     MaterialTheme(colorScheme = colors) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             when {
@@ -103,53 +121,83 @@ private fun CameraScreen(item: DiscountItem?, scannedValue: String, onResult: (S
     val context = LocalContext.current
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     var denied by remember { mutableStateOf(false) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        permission = it; denied = !it
-    }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Text("BF DISCOUNT SCANNER", fontSize = 19.sp, fontWeight = FontWeight.Black)
-                Text("Black Friday • Offline lookup", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+    var torchOn by remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it; denied = !it }
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("BF Discount Scanner", fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("Offline lookup", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            OutlinedButton(onClick = onSearch) { Text("Search") }
+            IconButton(onClick = onSearch, modifier = Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface)) {
+                Icon(Icons.Default.Search, contentDescription = "Search products")
+            }
         }
-        if (permission) {
-            CameraPreview(onBarcode = { raw ->
-                onResult(raw)
-                runCatching {
-                    val vibrator = if (android.os.Build.VERSION.SDK_INT >= 31)
-                        (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-                    else @Suppress("DEPRECATION") (context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as Vibrator)
-                    if (android.os.Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(65, VibrationEffect.DEFAULT_AMPLITUDE))
-                    else vibrator.vibrate(65)
-                    ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70).apply {
-                        startTone(ToneGenerator.TONE_PROP_BEEP, 70)
+        Box(Modifier.fillMaxWidth().weight(0.58f).clip(RoundedCornerShape(24.dp)).background(Color(0xFF171A18))) {
+            if (permission) {
+                CameraPreview(onBarcode = { raw ->
+                    onResult(raw)
+                    runCatching {
+                        val vibrator = if (android.os.Build.VERSION.SDK_INT >= 31)
+                            (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+                        else @Suppress("DEPRECATION") (context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as Vibrator)
+                        if (android.os.Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(65, VibrationEffect.DEFAULT_AMPLITUDE)) else vibrator.vibrate(65)
+                        ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70).apply { startTone(ToneGenerator.TONE_PROP_BEEP, 70) }
                     }
+                }, torchOn, Modifier.fillMaxSize())
+                ScanGuide(Modifier.fillMaxSize())
+                IconButton(onClick = { torchOn = !torchOn }, modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp).size(46.dp).background(Color(0x99000000), CircleShape)) {
+                    Icon(if (torchOn) Icons.Default.FlashOn else Icons.Default.FlashOff, contentDescription = "Toggle flashlight", tint = Color.White)
                 }
-            }, Modifier.fillMaxWidth().weight(1f))
-        } else {
-            Box(Modifier.fillMaxWidth().weight(1f).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp)).padding(24.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Camera access required", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                    Text("Allow camera access to scan product barcodes. Scanning works offline.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Column(Modifier.align(Alignment.Center).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Camera access required", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                    Text("Allow camera access to scan product barcodes. Scanning works offline.", color = Color(0xFFBFC6C0))
                     Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text(if (denied) "Grant camera permission" else "Enable camera") }
                 }
             }
         }
-        if (item != null) ResultCard(item, scannedValue, Modifier.fillMaxWidth())
-        else Box(Modifier.fillMaxWidth().height(130.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
-            Text("Point the camera at a product barcode", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        AnimatedVisibility(true, enter = slideInVertically(initialOffsetY = { it / 5 }) + fadeIn(), modifier = Modifier.weight(0.42f).fillMaxWidth()) {
+            ResultCard(item, scannedValue, Modifier.fillMaxSize())
         }
     }
 }
 
 @Composable
-private fun CameraPreview(onBarcode: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun ScanGuide(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "scan")
+    val progress by transition.animateFloat(0.18f, 0.82f, infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Reverse), label = "scan-position")
+    Canvas(modifier) {
+        drawRect(Color.Black.copy(alpha = 0.16f))
+        val w = size.width * 0.72f
+        val h = size.height * 0.34f
+        val l = (size.width - w) / 2f
+        val t = (size.height - h) / 2f
+        val r = l + w
+        val b = t + h
+        val c = size.width * 0.075f
+        val stroke = 5.dp.toPx()
+        val white = Color.White.copy(alpha = 0.96f)
+        val corners = listOf(Triple(l,t,1), Triple(r,t,2), Triple(l,b,3), Triple(r,b,4))
+        corners.forEach { (x,y,corner) ->
+            val sx = if (corner == 1 || corner == 3) 1f else -1f
+            val sy = if (corner == 1 || corner == 2) 1f else -1f
+            drawLine(white, androidx.compose.ui.geometry.Offset(x,y), androidx.compose.ui.geometry.Offset(x+c*sx,y), stroke, cap = StrokeCap.Round)
+            drawLine(white, androidx.compose.ui.geometry.Offset(x,y), androidx.compose.ui.geometry.Offset(x,y+c*sy), stroke, cap = StrokeCap.Round)
+        }
+        val y = t + h * progress
+        drawLine(Color(0xFFFF3B30), androidx.compose.ui.geometry.Offset(l+8.dp.toPx(),y), androidx.compose.ui.geometry.Offset(r-8.dp.toPx(),y), 2.dp.toPx(), cap = StrokeCap.Round)
+    }
+}
+
+@Composable
+private fun CameraPreview(onBarcode: (String) -> Unit, torchOn: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val lastScanAt = remember { AtomicLong(0L) }
     val lastValue = remember { mutableStateOf("") }
+    val cameraState = remember { mutableStateOf<Camera?>(null) }
+    LaunchedEffect(torchOn) { cameraState.value?.cameraControl?.enableTorch(torchOn) }
     AndroidView(modifier = modifier, factory = { ctx ->
         val view = PreviewView(ctx).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         val future = ProcessCameraProvider.getInstance(ctx)
@@ -180,7 +228,7 @@ private fun CameraPreview(onBarcode: (String) -> Unit, modifier: Modifier = Modi
                         }
                     }.addOnCompleteListener { proxy.close() }
             }
-            try { provider.unbindAll(); provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis) }
+            try { provider.unbindAll(); val camera = provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis); cameraState.value = camera; camera.cameraControl.enableTorch(torchOn) }
             catch (_: Exception) { }
         }, ContextCompat.getMainExecutor(ctx))
         view
@@ -188,13 +236,31 @@ private fun CameraPreview(onBarcode: (String) -> Unit, modifier: Modifier = Modi
 }
 
 @Composable
-private fun ResultCard(item: DiscountItem, scannedValue: String, modifier: Modifier = Modifier) {
-    val found = item.hasDiscount
-    Column(modifier.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp)).padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(if (found) item.discount else "NO DISCOUNT", fontSize = if (found) 42.sp else 30.sp, fontWeight = FontWeight.Black, color = if (found) Green else Red)
-        if (item.name.isNotBlank()) Text(item.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
-        Text("EAN  ${item.ean.ifBlank { scannedValue }}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (item.article.isNotBlank()) Text("ARTICLE  ${item.article}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun ResultCard(item: DiscountItem?, scannedValue: String, modifier: Modifier = Modifier) {
+    val found = item?.hasDiscount == true
+    val accent = if (item == null) MaterialTheme.colorScheme.primary else if (found) Green else Red
+    Surface(modifier = modifier, shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
+        Row(Modifier.fillMaxSize()) {
+            Box(Modifier.width(5.dp).fillMaxHeight().background(accent))
+            Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.Center) {
+                if (item == null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Default.BarcodeScanner, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(30.dp))
+                        Text("Point the camera at a barcode", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                    }
+                    Text("Your discount will appear here", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 42.dp, top = 6.dp))
+                } else if (found) {
+                    Text(item.discount, fontSize = 54.sp, lineHeight = 58.sp, fontWeight = FontWeight.Bold, color = Green, maxLines = 1)
+                    Text(item.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(8.dp))
+                    Text("EAN  " + item.ean, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (item.article.isNotBlank()) Text("ARTICLE  " + item.article, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("No discount", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Red)
+                    Text("EAN  " + (scannedValue.ifBlank { item.ean }), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        }
     }
 }
 
@@ -203,28 +269,56 @@ private fun SearchScreen(
     query: String, onQuery: (String) -> Unit, articleMode: Boolean, onMode: (Boolean) -> Unit,
     result: PrefixResult, onBack: () -> Unit, onPick: (DiscountItem) -> Unit
 ) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Product search", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = onBack) { Text("Camera") }
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            Text("Product search", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
         }
-        OutlinedTextField(value = query, onValueChange = { onQuery(it.filter(Char::isDigit)) }, modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Enter first 3+ digits") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !articleMode, onClick = { onMode(false) }, label = { Text("EAN") })
-            FilterChip(selected = articleMode, onClick = { onMode(true) }, label = { Text("Article") })
-        }
-        if (query.length < 3) Text("Type at least 3 digits to search.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
-        else Text("${result.total} items start with ${query}", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(result.items, key = { "${it.ean}-${it.article}-${it.name}" }) { item ->
-                Card(onClick = { onPick(item) }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(item.discount, color = if (item.hasDiscount) Green else Red, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(item.name, fontWeight = FontWeight.SemiBold)
-                        Text("EAN: ${item.ean}   •   Article: ${item.article}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = query, onValueChange = { onQuery(it.filter(Char::isDigit)) }, modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Enter first 3+ digits") }, singleLine = true,
+            textStyle = MaterialTheme.typography.titleLarge,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Close, contentDescription = "Clear search") } },
+            shape = RoundedCornerShape(18.dp)
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf("EAN" to false, "Article" to true).forEach { (label, article) ->
+                val selected = articleMode == article
+                Surface(onClick = { onMode(article) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp),
+                    color = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent, shadowElevation = if (selected) 1.dp else 0.dp) {
+                    Box(Modifier.padding(vertical = 11.dp), contentAlignment = Alignment.Center) {
+                        Text(label, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        if (query.length < 3) Text("Type at least 3 digits to search", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+        else Text("${result.total} items start with " + query, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(10.dp))
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
+            items(result.items, key = { it.ean + "-" + it.article + "-" + it.name }) { item -> SearchResultRow(item) { onPick(item) } }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultRow(item: DiscountItem, onClick: () -> Unit) {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+            Surface(shape = RoundedCornerShape(10.dp), color = if (item.hasDiscount) Green.copy(alpha = 0.11f) else Red.copy(alpha = 0.10f)) {
+                Text(item.discount, Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                    color = if (item.hasDiscount) Green else Red, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(item.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Text("EAN  " + item.ean, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("ARTICLE  " + item.article, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
