@@ -40,6 +40,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.History
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -122,21 +125,51 @@ private fun CameraScreen(item: DiscountItem?, scannedValue: String, onResult: (S
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     var denied by remember { mutableStateOf(false) }
     var torchOn by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
+    val recentScans = remember { mutableStateListOf<String>() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it; denied = !it }
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("BF Discount Scanner", fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text("Offline lookup", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+    if (showHistory) {
+        AlertDialog(
+            onDismissRequest = { showHistory = false },
+            title = { Text("Recent scans", fontWeight = FontWeight.Bold) },
+            text = {
+                if (recentScans.isEmpty()) Text("Scanned products will appear here.")
+                else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    recentScans.take(8).forEach { value -> Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showHistory = false }) { Text("Close") } },
+            dismissButton = { if (recentScans.isNotEmpty()) TextButton(onClick = { recentScans.clear() }) { Text("Clear") } }
+        )
+    }
+
+    Column(Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Row(
+            Modifier.fillMaxWidth().height(88.dp).background(Color.Black).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(painterResource(id = R.drawable.ic_launcher), contentDescription = "BF Discount Scanner logo", modifier = Modifier.size(54.dp))
+            Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(54.dp).background(Color(0xFF555555)))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text("BF Discount Scanner", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("Black Friday • Offline lookup", color = Color(0xFFB8B8B8), fontSize = 12.sp, maxLines = 1)
             }
-            IconButton(onClick = onSearch, modifier = Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface)) {
-                Icon(Icons.Default.Search, contentDescription = "Search products")
+            IconButton(onClick = { showHistory = true }, modifier = Modifier.size(52.dp).background(Color(0xFF111111), RoundedCornerShape(15.dp))) {
+                Icon(Icons.Default.History, contentDescription = "Recent scans", tint = Color.White, modifier = Modifier.size(27.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            IconButton(onClick = onSearch, modifier = Modifier.size(52.dp).background(Color(0xFFFF101B), RoundedCornerShape(15.dp))) {
+                Icon(Icons.Default.Search, contentDescription = "Search products", tint = Color.White, modifier = Modifier.size(29.dp))
             }
         }
-        Box(Modifier.fillMaxWidth().weight(0.58f).clip(RoundedCornerShape(24.dp)).background(Color(0xFF171A18))) {
+
+        Box(Modifier.fillMaxWidth().weight(1f).background(Color.Black)) {
             if (permission) {
                 CameraPreview(onBarcode = { raw ->
                     onResult(raw)
+                    if (recentScans.firstOrNull() != raw) recentScans.add(0, raw)
+                    while (recentScans.size > 20) recentScans.removeAt(recentScans.lastIndex)
                     runCatching {
                         val vibrator = if (android.os.Build.VERSION.SDK_INT >= 31)
                             (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
@@ -146,8 +179,12 @@ private fun CameraScreen(item: DiscountItem?, scannedValue: String, onResult: (S
                     }
                 }, torchOn, Modifier.fillMaxSize())
                 ScanGuide(Modifier.fillMaxSize())
-                IconButton(onClick = { torchOn = !torchOn }, modifier = Modifier.align(Alignment.BottomEnd).padding(14.dp).size(46.dp).background(Color(0x99000000), CircleShape)) {
-                    Icon(if (torchOn) Icons.Default.FlashOn else Icons.Default.FlashOff, contentDescription = "Toggle flashlight", tint = Color.White)
+                IconButton(
+                    onClick = { torchOn = !torchOn },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp)
+                        .size(58.dp).background(Color(0xCC080808), CircleShape)
+                ) {
+                    Icon(if (torchOn) Icons.Default.FlashOn else Icons.Default.FlashOff, contentDescription = "Toggle flashlight", tint = Color.White, modifier = Modifier.size(27.dp))
                 }
             } else {
                 Column(Modifier.align(Alignment.Center).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -157,8 +194,42 @@ private fun CameraScreen(item: DiscountItem?, scannedValue: String, onResult: (S
                 }
             }
         }
-        AnimatedVisibility(true, enter = slideInVertically(initialOffsetY = { it / 5 }) + fadeIn(), modifier = Modifier.weight(0.42f).fillMaxWidth()) {
-            ResultCard(item, scannedValue, Modifier.fillMaxSize())
+
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp).heightIn(min = 92.dp),
+            color = Color(0xFF050505),
+            shape = RoundedCornerShape(24.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD8D8D8))
+        ) {
+            Row(Modifier.fillMaxWidth().padding(start = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+                Box(Modifier.padding(horizontal = 14.dp).width(1.dp).height(48.dp).background(Color(0xFF555555)))
+                Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
+                    Text(
+                        when {
+                            item == null -> "Scan a product barcode"
+                            item.hasDiscount -> item.discount + " discount found"
+                            else -> "No discount"
+                        },
+                        color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1
+                    )
+                    Text(
+                        when {
+                            item == null -> "Get price and discount details."
+                            item.name.isNotBlank() && item.hasDiscount -> item.name
+                            else -> scannedValue
+                        },
+                        color = Color(0xFFBDBDBD), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Box(
+                    Modifier.padding(start = 10.dp).width(76.dp).height(92.dp)
+                        .background(Color(0xFFFF101B), RoundedCornerShape(topStart = 30.dp, bottomStart = 42.dp, topEnd = 22.dp, bottomEnd = 22.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("%", color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black)
+                }
+            }
         }
     }
 }
